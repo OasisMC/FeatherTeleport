@@ -1,0 +1,17 @@
+name: 'FeatherTeleport'
+main: com.bringholm.featherteleport.FeatherTeleport
+author: 'AlvinB'
+version: '1.0'
+softdepend: [WorldGuard]
+permissions:
+  featherteleport.*:
+    description: Gives you access to all permissions of this plugin.
+    children:
+      featherteleport.use: true
+      featherteleport.bypass: true
+  featherteleport.use:
+    description: Lets you teleport entities.
+    default: true
+  featherteleport.bypass:
+    description: Lets you teleport entities into protected regions, and use other people's private animals.
+    default: op
