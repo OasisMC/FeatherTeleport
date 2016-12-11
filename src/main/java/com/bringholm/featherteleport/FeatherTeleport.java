@@ -3,12 +3,11 @@ package com.bringholm.featherteleport;
 import com.bringholm.featherteleport.bukkitutils.BukkitReflectionUtils;
 import com.bringholm.featherteleport.bukkitutils.ConfigurationHandler;
 import com.bringholm.featherteleport.bukkitutils.ConfigurationUtils;
-import com.google.common.collect.Lists;
 import com.sk89q.worldguard.bukkit.RegionQuery;
 import com.sk89q.worldguard.bukkit.WorldGuardPlugin;
 import com.sk89q.worldguard.protection.flags.DefaultFlag;
-import com.sk89q.worldguard.protection.flags.Flag;
 import com.sk89q.worldguard.protection.flags.StateFlag;
+import com.sk89q.worldguard.protection.flags.registry.SimpleFlagRegistry;
 import org.apache.commons.lang.WordUtils;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
@@ -27,9 +26,13 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.UUID;
 
-import static org.bukkit.ChatColor.*;
+import static org.bukkit.ChatColor.GOLD;
+import static org.bukkit.ChatColor.RED;
 
 public class FeatherTeleport extends JavaPlugin implements Listener {
     private HashMap<UUID, List<Entity>> selectedMobs = new HashMap<>();
@@ -46,14 +49,13 @@ public class FeatherTeleport extends JavaPlugin implements Listener {
         if (!this.getServer().getPluginManager().isPluginEnabled("WorldGuard")) {
             this.getLogger().warning("WorldGuard is not enabled. Region flags using WorldGuard will not work!");
         } else {
-            List<Flag> newFlagList = Lists.newArrayList(DefaultFlag.getFlags());
-            newFlagList.add(allowFlag);
-            Flag<?>[] newFlagArray = Arrays.copyOf(newFlagList.toArray(), newFlagList.toArray().length, Flag[].class);
-            try {
-                BukkitReflectionUtils.modifyFinalField(DefaultFlag.class.getField("flagsList"), null, newFlagArray);
-            } catch (NoSuchFieldException e) {
-                e.printStackTrace();
+            SimpleFlagRegistry flagRegistry = (SimpleFlagRegistry) BukkitReflectionUtils.getDeclaredField(WorldGuardPlugin.inst(), "flagRegistry");
+            if (flagRegistry == null) {
+                this.getLogger().warning("Failed to add allow-feather-teleport flag!");
+                return;
             }
+            flagRegistry.setInitialized(false);
+            flagRegistry.register(allowFlag);
             isWGEnabled = true;
         }
     }
