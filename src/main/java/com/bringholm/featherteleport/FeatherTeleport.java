@@ -1,6 +1,5 @@
 package com.bringholm.featherteleport;
 
-import com.bringholm.featherteleport.bukkitutils.BukkitReflectionUtils;
 import com.bringholm.featherteleport.bukkitutils.ConfigurationHandler;
 import com.bringholm.featherteleport.bukkitutils.ConfigurationUtils;
 import com.sk89q.worldguard.bukkit.RegionQuery;
@@ -12,9 +11,7 @@ import org.apache.commons.lang.WordUtils;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.Material;
-import org.bukkit.entity.Animals;
-import org.bukkit.entity.Entity;
-import org.bukkit.entity.Player;
+import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
@@ -26,10 +23,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
 import static org.bukkit.ChatColor.GOLD;
 import static org.bukkit.ChatColor.RED;
@@ -37,6 +31,7 @@ import static org.bukkit.ChatColor.RED;
 public class FeatherTeleport extends JavaPlugin implements Listener {
     private HashMap<UUID, List<Entity>> selectedMobs = new HashMap<>();
     private HashMap<UUID, List<UUID>> privateAnimals = new HashMap<>();
+    private EnumSet<EntityType> allowedTypes = EnumSet.of(EntityType.VILLAGER);
     private List<ChunkID> chunkList = new ArrayList<>();
     private boolean isWGEnabled = false;
     private boolean recentEntityEvent = false;
@@ -49,7 +44,7 @@ public class FeatherTeleport extends JavaPlugin implements Listener {
         if (!this.getServer().getPluginManager().isPluginEnabled("WorldGuard")) {
             this.getLogger().warning("WorldGuard is not enabled. Region flags using WorldGuard will not work!");
         } else {
-            SimpleFlagRegistry flagRegistry = (SimpleFlagRegistry) BukkitReflectionUtils.getDeclaredField(WorldGuardPlugin.inst(), "flagRegistry");
+            SimpleFlagRegistry flagRegistry = (SimpleFlagRegistry) WorldGuardPlugin.inst().getFlagRegistry();
             if (flagRegistry == null) {
                 this.getLogger().warning("Failed to add allow-feather-teleport flag!");
                 return;
@@ -72,7 +67,7 @@ public class FeatherTeleport extends JavaPlugin implements Listener {
         }
         if (e.getHand() == EquipmentSlot.HAND) {
             if (e.getPlayer().getInventory().getItemInMainHand().getType() == Material.FEATHER) {
-                if (e.getRightClicked() instanceof Animals) {
+                if (e.getRightClicked() instanceof Animals || allowedTypes.contains(e.getRightClicked().getType())) {
                     if (isWGEnabled) {
                         WorldGuardPlugin worldGuard = (WorldGuardPlugin) this.getServer().getPluginManager().getPlugin("WorldGuard");
                         RegionQuery regionQuery = worldGuard.getRegionContainer().createQuery();
@@ -131,7 +126,7 @@ public class FeatherTeleport extends JavaPlugin implements Listener {
                 if (item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
                     if (item.getItemMeta().getDisplayName().equalsIgnoreCase("Private")) {
                         if (!isAnimalPrivate(e.getRightClicked())) {
-                            if (e.getRightClicked() instanceof Animals) {
+                            if (e.getRightClicked() instanceof Animals || allowedTypes.contains(e.getRightClicked().getType())) {
                                 privateAnimal(e.getPlayer(), e.getRightClicked());
                                 e.getPlayer().sendMessage(GOLD + "This Animal is now yours!");
                             }
@@ -145,7 +140,7 @@ public class FeatherTeleport extends JavaPlugin implements Listener {
                         }
                     }
                 } else if (item.getItemMeta().getDisplayName().equalsIgnoreCase("Staffunprivate") && e.getPlayer().hasPermission("featherteleport.bypass")) {
-                    if (e.getRightClicked() instanceof Animals) {
+                    if (e.getRightClicked() instanceof Animals || allowedTypes.contains(e.getRightClicked().getType())) {
                         if (isAnimalPrivate(e.getRightClicked())) {
                             for (HashMap.Entry<UUID, List<UUID>> entry : privateAnimals.entrySet()) {
                                 if (entry.getValue().contains(e.getRightClicked().getUniqueId())) {
