@@ -1,14 +1,22 @@
 name: 'FeatherTeleport'
 main: com.bringholm.featherteleport.FeatherTeleport
 author: 'AlvinB'
-version: '1.0'
+version: '1.3.1'
 softdepend: [WorldGuard]
+commands:
+  featherteleport:
+    aliases: [feathertp]
+    description: Reloads FeatherTeleport's config and language files.
+    usage: /<command> reload
+    permission: featherteleport.admin
+    permission-message: You don''t have permission to do this!
 permissions:
   featherteleport.*:
     description: Gives you access to all permissions of this plugin.
     children:
       featherteleport.use: true
       featherteleport.bypass: true
+      featherteleport.admin: true
   featherteleport.use:
     description: Lets you teleport entities.
     default: true

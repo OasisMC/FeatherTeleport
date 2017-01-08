@@ -1,0 +1,12 @@
+# Configuration file for FeatherTeleport
+
+# Language to be used for messages. Translations will be obtained from plugins/FeatherTeleport/<language>.lang. If this file does not exist, the
+# plugin will look if the translation file is packaged within the plugin, and if it is, it'll be used. If no language file is found this way, the default
+# en_US translations will be used. You can also edit all translation files to your own liking, or create a completely new one and use that.
+language: en_US
+
+# Limit for how long an animal can be selected (in seconds)
+animal-time-limit: 60
+
+# Limit for how many animals a user can select at once
+animal-amount-limit: 10

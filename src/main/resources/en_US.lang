@@ -1,0 +1,20 @@
+﻿# English translations for the FeatherTeleport plugin.
+missing.worldguard=WorldGuard could not be found! Region flags will not work!
+worldguard.flag.failed=Failed to add region flag due to %error%
+worldguard.denymessage=teleport that entity
+animal.other.owner=&cSomeone else owns this animal, so you cannot teleport it!
+animal.deselected=&6Deselected %animal% for teleporting!
+animal.selected.limit=&cYou can only select %amount% animals at once!
+animal.selected=&6Selected %animal% to teleport!
+animal.timelimit=&cYou waited to long to teleport %animal%, so it has been deselected.
+animal.privated=&6This Animal is now yours!
+animal.already.owned=&cThis Animal is already owned!
+animal.deprivated=&6This Animal is no longer yours!
+animal.staff.deprivated=&6Successfully unprivated %animal%!
+animal.staff.notprivate=&cThis Animal isn't private!
+animal.inotherworld=&cCannot teleport entity %animal% because it is in another world!
+animal.teleport.singular=&6Teleported 1 entity!
+animal.teleport.plural=&6Teleported %amount% entities!
+animal.teleport.unsafe=&cUnsafe location to teleport mob to!
+command.invalid.args=&cInvalid arguments!
+command.success=&6Successfully reloaded configuration files!

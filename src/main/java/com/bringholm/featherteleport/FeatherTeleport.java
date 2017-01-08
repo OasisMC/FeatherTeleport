@@ -2,16 +2,18 @@ package com.bringholm.featherteleport;
 
 import com.bringholm.featherteleport.bukkitutils.ConfigurationHandler;
 import com.bringholm.featherteleport.bukkitutils.ConfigurationUtils;
-import com.sk89q.worldguard.bukkit.RegionQuery;
-import com.sk89q.worldguard.bukkit.WorldGuardPlugin;
-import com.sk89q.worldguard.protection.flags.DefaultFlag;
-import com.sk89q.worldguard.protection.flags.StateFlag;
-import com.sk89q.worldguard.protection.flags.registry.SimpleFlagRegistry;
+import com.bringholm.featherteleport.bukkitutils.I18n;
+import com.google.common.collect.Lists;
 import org.apache.commons.lang.WordUtils;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.Material;
-import org.bukkit.entity.*;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Animals;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.EntityType;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
@@ -25,39 +27,57 @@ import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.*;
 
-import static org.bukkit.ChatColor.GOLD;
-import static org.bukkit.ChatColor.RED;
 
 public class FeatherTeleport extends JavaPlugin implements Listener {
     private HashMap<UUID, List<Entity>> selectedMobs = new HashMap<>();
     private HashMap<UUID, List<UUID>> privateAnimals = new HashMap<>();
+    private HashMap<UUID, List<BukkitRunnable>> bukkitRunnables = new HashMap<>();
     private EnumSet<EntityType> allowedTypes = EnumSet.of(EntityType.VILLAGER);
+    private int animalTimeLimit;
+    private int animalAmountLimit;
+    private List<UUID> recentEntityEventList = new ArrayList<>();
     private List<ChunkID> chunkList = new ArrayList<>();
-    private boolean isWGEnabled = false;
-    private boolean recentEntityEvent = false;
-    private static StateFlag allowFlag = new StateFlag("allow-feather-teleport", true);
+    private WorldGuardHandler worldGuardHandler;
+    boolean isWGEnabled = false;
+    I18n i18n;
+
+    @Override
+    public void onLoad() {
+        try {
+            Class.forName("com.sk89q.worldguard.bukkit.WorldGuardPlugin");
+        } catch (ClassNotFoundException e){
+            return;
+        }
+        worldGuardHandler = new WorldGuardHandler(this);
+        worldGuardHandler.registerFlag();
+    }
 
     @Override
     public void onEnable() {
-        loadAnimalData();
-        this.getServer().getPluginManager().registerEvents(this, this);
-        if (!this.getServer().getPluginManager().isPluginEnabled("WorldGuard")) {
-            this.getLogger().warning("WorldGuard is not enabled. Region flags using WorldGuard will not work!");
+        i18n = new I18n(this, "en_US", "en_US");
+        if (!isWGEnabled) {
+            this.getLogger().warning(i18n.tr("missing.worldguard"));
         } else {
-            SimpleFlagRegistry flagRegistry = (SimpleFlagRegistry) WorldGuardPlugin.inst().getFlagRegistry();
-            if (flagRegistry == null) {
-                this.getLogger().warning("Failed to add allow-feather-teleport flag!");
-                return;
-            }
-            flagRegistry.setInitialized(false);
-            flagRegistry.register(allowFlag);
-            isWGEnabled = true;
+            worldGuardHandler.printOnEnableMessages();
         }
+        reloadConfigValues();
+        this.getServer().getPluginManager().registerEvents(this, this);
     }
 
     @Override
     public void onDisable() {
         saveAnimalData();
+    }
+
+    @Override
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (args.length != 1) {
+            sender.sendMessage(i18n.tr("command.invalid.args"));
+        } else {
+            reloadConfigValues();
+            sender.sendMessage(i18n.tr("command.success"));
+        }
+        return true;
     }
 
     @EventHandler
@@ -67,19 +87,23 @@ public class FeatherTeleport extends JavaPlugin implements Listener {
         }
         if (e.getHand() == EquipmentSlot.HAND) {
             if (e.getPlayer().getInventory().getItemInMainHand().getType() == Material.FEATHER) {
+                recentEntityEventList.add(e.getPlayer().getUniqueId());
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        recentEntityEventList.remove(e.getPlayer().getUniqueId());
+                    }
+                }.runTask(this);
                 if (e.getRightClicked() instanceof Animals || allowedTypes.contains(e.getRightClicked().getType())) {
+                    e.setCancelled(true);
                     if (isWGEnabled) {
-                        WorldGuardPlugin worldGuard = (WorldGuardPlugin) this.getServer().getPluginManager().getPlugin("WorldGuard");
-                        RegionQuery regionQuery = worldGuard.getRegionContainer().createQuery();
-                        StateFlag.State queryResult = regionQuery.queryState(e.getRightClicked().getLocation(), e.getPlayer(), allowFlag);
-                        if (queryResult == StateFlag.State.DENY && !e.getPlayer().hasPermission("featherteleport.bypass")) {
-                            regionQuery = worldGuard.getRegionContainer().createQuery();
-                            e.getPlayer().sendMessage(regionQuery.queryValue(e.getRightClicked().getLocation(), e.getPlayer(), DefaultFlag.DENY_MESSAGE).replace("%what%", "teleport that entity"));
+                        if (!worldGuardHandler.checkRegionAccess(e.getPlayer(), e.getRightClicked().getLocation()) && !e.getPlayer().hasPermission("featherteleport.bypass")) {
+                            e.getPlayer().sendMessage(worldGuardHandler.getDenyMessage(e.getPlayer(), e.getRightClicked().getLocation()).replace("%what%", i18n.tr("worldguard.denymessage")));
                             return;
                         }
                     }
                     if (!canPlayerTeleportAnimal(e.getPlayer(), e.getRightClicked()) && !e.getPlayer().hasPermission("featherteleport.bypass")) {
-                        e.getPlayer().sendMessage(RED + "Someone else owns this animal, so you cannot teleport it!");
+                        e.getPlayer().sendMessage(i18n.tr("animal.other.owner"));
                         return;
                     }
                     if (!selectedMobs.containsKey(e.getPlayer().getUniqueId())) {
@@ -88,21 +112,21 @@ public class FeatherTeleport extends JavaPlugin implements Listener {
                     ChunkID chunk = new ChunkID(e.getRightClicked().getLocation().getChunk());
                     if (selectedMobs.get(e.getPlayer().getUniqueId()).contains(e.getRightClicked())) {
                         selectedMobs.get(e.getPlayer().getUniqueId()).remove(e.getRightClicked());
-                        e.getPlayer().sendMessage(GOLD + "Deselected " + WordUtils.capitalizeFully(e.getRightClicked().getType().toString()) + " for teleporting!");
+                        e.getPlayer().sendMessage(i18n.tr("animal.deselected").replace("%animal%", WordUtils.capitalizeFully(e.getRightClicked().getType().toString())));
                         if (selectedMobs.get(e.getPlayer().getUniqueId()).size() == 0) {
                             selectedMobs.remove(e.getPlayer().getUniqueId());
                             chunkList.remove(chunk);
                         }
                         return;
                     }
-                    if (selectedMobs.get(e.getPlayer().getUniqueId()).size() == 10) {
-                        e.getPlayer().sendMessage(RED + "You can only select 10 animals at once!");
+                    if (selectedMobs.get(e.getPlayer().getUniqueId()).size() == animalAmountLimit) {
+                        e.getPlayer().sendMessage(i18n.tr("animal.selected.limit").replace("%amount%", String.valueOf(animalAmountLimit)));
                         return;
                     }
                     selectedMobs.get(e.getPlayer().getUniqueId()).add(e.getRightClicked());
                     chunkList.add(chunk);
-                    e.getPlayer().sendMessage(GOLD + "Selected " + WordUtils.capitalizeFully(e.getRightClicked().getType().toString()) + " to teleport!");
-                    new BukkitRunnable() {
+                    e.getPlayer().sendMessage(i18n.tr("animal.selected").replace("%animal%", WordUtils.capitalizeFully(e.getRightClicked().getType().toString())));
+                    BukkitRunnable bukkitRunnable = new BukkitRunnable() {
                         @Override
                         public void run() {
                             if (!selectedMobs.containsKey(e.getPlayer().getUniqueId())) {
@@ -110,47 +134,53 @@ public class FeatherTeleport extends JavaPlugin implements Listener {
                             }
                             chunkList.remove(chunk);
                             selectedMobs.get(e.getPlayer().getUniqueId()).remove(e.getRightClicked());
-                            e.getPlayer().sendMessage(RED + "You waited to long to teleport " + WordUtils.capitalizeFully(e.getRightClicked().getType().toString()) + ", so it has been deselected.");
+                            if (selectedMobs.get(e.getPlayer().getUniqueId()).isEmpty()) {
+                                selectedMobs.remove(e.getPlayer().getUniqueId());
+                            }
+                            e.getPlayer().sendMessage(i18n.tr("animal.timelimit").replace("%animal%", WordUtils.capitalizeFully(e.getRightClicked().getType().toString())));
+                            if (bukkitRunnables.containsKey(e.getPlayer().getUniqueId()) && bukkitRunnables.get(e.getPlayer().getUniqueId()).contains(this)) {
+                                bukkitRunnables.get(e.getPlayer().getUniqueId()).remove(this);
+                            }
                         }
-                    }.runTaskLater(this, 1200L);
-                    recentEntityEvent = true;
-                    new BukkitRunnable() {
-                        @Override
-                        public void run() {
-                            recentEntityEvent = false;
-                        }
-                    }.runTask(this);
+                    };
+                    bukkitRunnable.runTaskLater(this, animalTimeLimit * 20);
+                    if (!bukkitRunnables.containsKey(e.getPlayer().getUniqueId())) {
+                        bukkitRunnables.put(e.getPlayer().getUniqueId(), Lists.newArrayList());
+                    }
+                    bukkitRunnables.get(e.getPlayer().getUniqueId()).add(bukkitRunnable);
                 }
             } else if (e.getPlayer().getInventory().getItemInMainHand().getType() == Material.STICK) {
                 ItemStack item = e.getPlayer().getInventory().getItemInMainHand();
                 if (item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
-                    if (item.getItemMeta().getDisplayName().equalsIgnoreCase("Private")) {
+                    if (item.getItemMeta().getDisplayName().equalsIgnoreCase("private")) {
+                        e.setCancelled(true);
                         if (!isAnimalPrivate(e.getRightClicked())) {
                             if (e.getRightClicked() instanceof Animals || allowedTypes.contains(e.getRightClicked().getType())) {
                                 privateAnimal(e.getPlayer(), e.getRightClicked());
-                                e.getPlayer().sendMessage(GOLD + "This Animal is now yours!");
+                                e.getPlayer().sendMessage(i18n.tr("animal.privated"));
                             }
                         } else {
                             if (!doesPlayerOwnAnimal(e.getPlayer(), e.getRightClicked())) {
-                                e.getPlayer().sendMessage(RED + "This Animal is already owned!");
+                                e.getPlayer().sendMessage(i18n.tr("animal.already.owned"));
                             } else {
-                                e.getPlayer().sendMessage(GOLD + "This Animal is no longer yours!");
+                                e.getPlayer().sendMessage(i18n.tr("animal.deprivated"));
                                 privateAnimals.get(e.getPlayer().getUniqueId()).remove(e.getRightClicked().getUniqueId());
                             }
                         }
                     }
-                } else if (item.getItemMeta().getDisplayName().equalsIgnoreCase("Staffunprivate") && e.getPlayer().hasPermission("featherteleport.bypass")) {
+                } else if (item.getItemMeta().getDisplayName().equalsIgnoreCase("staffunprivate") && e.getPlayer().hasPermission("featherteleport.bypass")) {
                     if (e.getRightClicked() instanceof Animals || allowedTypes.contains(e.getRightClicked().getType())) {
+                        e.setCancelled(true);
                         if (isAnimalPrivate(e.getRightClicked())) {
                             for (HashMap.Entry<UUID, List<UUID>> entry : privateAnimals.entrySet()) {
                                 if (entry.getValue().contains(e.getRightClicked().getUniqueId())) {
                                     entry.getValue().remove(e.getRightClicked().getUniqueId());
-                                    e.getPlayer().sendMessage(GOLD + "Successfully unprivated " + WordUtils.capitalizeFully(e.getRightClicked().getType().toString()) + "!");
+                                    e.getPlayer().sendMessage(i18n.tr("animal.staff.deprivated").replace("%animal%", WordUtils.capitalizeFully(e.getRightClicked().getType().toString())));
                                     return;
                                 }
                             }
                         } else {
-                            e.getPlayer().sendMessage(RED + "This Animal isn't private!");
+                            e.getPlayer().sendMessage(i18n.tr("animal.staff.notprivate"));
                         }
                     }
                 }
@@ -161,41 +191,53 @@ public class FeatherTeleport extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onRightClick(PlayerInteractEvent e) {
-        if (e.getItem() == null || recentEntityEvent) {
+        if (e.getItem() == null || recentEntityEventList.contains(e.getPlayer().getUniqueId())) {
             return;
         }
         if (e.getAction() == Action.RIGHT_CLICK_BLOCK && e.getHand() == EquipmentSlot.HAND && e.getItem().getType() == Material.FEATHER) {
             if (selectedMobs.containsKey(e.getPlayer().getUniqueId())) {
                 Location location = e.getClickedBlock().getLocation().add(0.5, 1, 0.5);
                 if (isWGEnabled) {
-                    WorldGuardPlugin worldGuard = (WorldGuardPlugin) this.getServer().getPluginManager().getPlugin("WorldGuard");
-                    RegionQuery regionQuery = worldGuard.getRegionContainer().createQuery();
-                    StateFlag.State queryResult = regionQuery.queryState(location, e.getPlayer(), allowFlag);
-                    if (queryResult == StateFlag.State.DENY && !e.getPlayer().hasPermission("featherteleport.bypass")) {
-                        regionQuery = worldGuard.getRegionContainer().createQuery();
-                        e.getPlayer().sendMessage(regionQuery.queryValue(location, e.getPlayer(), DefaultFlag.DENY_MESSAGE).replace("%what%", "teleport that entity"));
+                    if (!worldGuardHandler.checkRegionAccess(e.getPlayer(), e.getClickedBlock().getLocation()) && !e.getPlayer().hasPermission("featherteleport.bypass")) {
+                        e.getPlayer().sendMessage(worldGuardHandler.getDenyMessage(e.getPlayer(), e.getClickedBlock().getLocation()).replace("%what%", i18n.tr("worldguard.denymessage")));
                         return;
                     }
                 }
                 if (!location.getBlock().getType().isSolid()) {
                     int count = 0;
                     for (Entity entity : selectedMobs.get(e.getPlayer().getUniqueId())) {
+                        ChunkID chunk = new ChunkID(entity.getLocation().getChunk());
+                        chunkList.remove(chunk);
                         if (!entity.getLocation().getWorld().equals(e.getPlayer().getWorld())) {
-                            e.getPlayer().sendMessage(RED + "Cannot teleport entity " + WordUtils.capitalizeFully(entity.getType().toString()) + " because it is in another world!");
+                            e.getPlayer().sendMessage(i18n.tr("animal.inotherworld").replace("%animal%", WordUtils.capitalizeFully(entity.getType().toString())));
                             continue;
                         }
-                        ChunkID chunk = new ChunkID(entity.getLocation().getChunk());
                         entity.teleport(location);
-                        chunkList.remove(chunk);
                         count++;
                     }
                     selectedMobs.remove(e.getPlayer().getUniqueId());
-                    e.getPlayer().sendMessage(GOLD + "Teleported " + count + " entit" + (count == 1 ? "y" : "ies") + "!");
+                    if (bukkitRunnables.containsKey(e.getPlayer().getUniqueId())) {
+                        for (BukkitRunnable bukkitRunnable : bukkitRunnables.get(e.getPlayer().getUniqueId())) {
+                            bukkitRunnable.cancel();
+                        }
+                        bukkitRunnables.get(e.getPlayer().getUniqueId()).clear();
+                    }
+                    e.getPlayer().sendMessage(count == 1 ? i18n.tr("animal.teleport.singular") : i18n.tr("animal.teleport.plural").replace("%amount%", String.valueOf(count)));
                 } else {
-                    e.getPlayer().sendMessage(RED + "Unsafe location to teleport mob to!");
+                    e.getPlayer().sendMessage(i18n.tr("animal.teleport.unsafe"));
                 }
             }
         }
+    }
+
+    private void reloadConfigValues() {
+        saveDefaultConfig();
+        reloadConfig();
+        i18n.setLanguage(getConfig().getString("language"));
+        i18n.reload();
+        animalTimeLimit = getConfig().getInt("animal-time-limit");
+        animalAmountLimit = getConfig().getInt("animal-amount-limit");
+        loadAnimalData();
     }
 
     private boolean canPlayerTeleportAnimal(Player player, Entity entity) {
@@ -226,7 +268,7 @@ public class FeatherTeleport extends JavaPlugin implements Listener {
     }
 
     private void saveAnimalData() {
-        ConfigurationHandler config = new ConfigurationHandler("privateAnimals.yml", this);
+        ConfigurationHandler config = new ConfigurationHandler("private-animals.yml", this);
         for (HashMap.Entry<UUID, List<UUID>> entry : privateAnimals.entrySet()) {
             ConfigurationUtils.saveUUIDList(config.getConfig(), entry.getValue(), entry.getKey().toString());
         }
@@ -235,7 +277,7 @@ public class FeatherTeleport extends JavaPlugin implements Listener {
 
     private void loadAnimalData() {
         privateAnimals.clear();
-        ConfigurationHandler config = new ConfigurationHandler("privateAnimals.yml", this);
+        ConfigurationHandler config = new ConfigurationHandler("private-animals.yml", this);
         for (String string : config.getConfig().getKeys(false)) {
             privateAnimals.put(UUID.fromString(string), ConfigurationUtils.getUUIDList(config.getConfig(), string));
         }
