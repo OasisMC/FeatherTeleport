@@ -43,9 +43,7 @@ public class FeatherTeleport extends JavaPlugin implements Listener {
 
     @Override
     public void onLoad() {
-        try {
-            Class.forName("com.sk89q.worldguard.bukkit.WorldGuardPlugin");
-        } catch (ClassNotFoundException e){
+        if (this.getServer().getPluginManager().getPlugin("WorldGuard") == null) {
             return;
         }
         worldGuardHandler = new WorldGuardHandler(this);

@@ -5,3 +5,5 @@ out/
 
 # Directories
 run/
+target/
+lib/
